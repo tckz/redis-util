@@ -1,4 +1,4 @@
-.PHONY: dist test clean all
+.PHONY: dist test clean all sonar
 .SUFFIXES: .proto .pb.go .go
 
 DIST_HGETALL=dist/hgetall
@@ -9,6 +9,10 @@ TARGETS=\
 SRCS_OTHER=$(shell find . -type d -name vendor -prune -o -type d -name cmd -prune -o -type f -name "*.go" -print)
 
 all: $(TARGETS)
+	@echo "$@ done."
+
+sonar: test
+	./gradlew sonar
 	@echo "$@ done."
 
 clean:

@@ -6,7 +6,6 @@ package main
  */
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -84,7 +83,7 @@ func main() {
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		// 入力行を受け取ってredisからgetする
-		go hgetall(i, nodes, chResult, chLine, chOut, *withoutKey)
+		go get(i, nodes, chResult, chLine, chOut, *withoutKey)
 	}
 
 	// 全ての受信goルーチンが終わったら終了
@@ -102,7 +101,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func hgetall(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan string, chOut chan<- string, withoutKey bool) {
+func get(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan string, chOut chan<- string, withoutKey bool) {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -114,45 +113,35 @@ func hgetall(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-
 	for key := range chLine {
 		lc++
 		if lc%100000 == 0 {
-			fmt.Fprintf(os.Stderr, "[%02d]hgetall: %d\n", i, lc)
+			fmt.Fprintf(os.Stderr, "[%02d]get: %d\n", i, lc)
 		}
 
-		rec, err := client.HGetAll(key).Result()
+		s, err := client.Get(key).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue
 		}
 
-		if len(rec) == 0 {
-			result.AddError("Key does not exist")
+		ttl, err := client.PTTL(key).Result()
+		if err != nil {
+			result.AddError(err.Error())
+			continue
+		}
+
+		ttlMs := time.Duration(ttl.Nanoseconds()) / time.Millisecond
+		ms := strconv.FormatInt(int64(ttlMs), 10)
+
+		if withoutKey {
+			chOut <- s + "\t" + ms
 		} else {
-			b, err := json.Marshal(rec)
-			if err != nil {
-				panic(err)
-			}
-
-			ttl, err := client.PTTL(key).Result()
-			if err != nil {
-				result.AddError(err.Error())
-				continue
-			}
-
-			ttlMs := time.Duration(ttl.Nanoseconds()) / time.Millisecond
-			ms := strconv.FormatInt(int64(ttlMs), 10)
-
-			s := string(b)
-			if withoutKey {
-				chOut <- s + "\t" + ms
-			} else {
-				chOut <- key + "\t" + s + "\t" + ms
-			}
+			chOut <- key + "\t" + s + "\t" + ms
 		}
 	}
 
 	elapsed := time.Since(from)
-	fmt.Fprintf(os.Stderr, "[%02d]hgetall: %d, Elapsed: %s\n", i, lc, elapsed)
-
+	fmt.Fprintf(os.Stderr, "[%02d]get: %d, Elapsed: %s\n", i, lc, elapsed)
 	result.Lines = lc
+
 	// 入力行が尽きたら受信件数をchResultに返して終了
 	chResult <- result
 }

@@ -89,6 +89,15 @@ func (s *SplitReader) LoadFile(i uint, splitCount uint, file string, chResult ch
 	}
 	fileSize := fi.Size()
 
+	s.LoadSeeker(i, splitCount, fileSize,
+		func() (io.ReadSeeker, error) {
+			return os.Open(file)
+		},
+		chResult, chLine, logStep)
+}
+
+func (s *SplitReader) LoadSeeker(i uint, splitCount uint, fileSize int64, genSeeker func() (io.ReadSeeker, error), chResult chan<- uint, chLine chan<- string, logStep uint) {
+
 	splitPoints, err := s.CalcSplitPoint(splitCount, fileSize)
 	if err != nil {
 		panic(err)
@@ -96,17 +105,21 @@ func (s *SplitReader) LoadFile(i uint, splitCount uint, file string, chResult ch
 
 	chSplit := make(chan uint, len(splitPoints))
 	// 分割された1ブロック分の処理
-	f := func(splitIndex int, offset int64, endOffset int64) {
-		fmt.Fprintf(os.Stderr, "[%02d-%02d]LoadFile: %s %d to %d\n",
-			i, splitIndex, file, offset, endOffset)
+	f := func(splitIndex int, beginOffset int64, endOffset int64) {
+		fmt.Fprintf(os.Stderr, "[%02d-%02d]LoadSeeker: %d to %d\n",
+			i, splitIndex, beginOffset, endOffset)
 
-		fp, err := os.Open(file)
+		fp, err := genSeeker()
 		if err != nil {
 			panic(err)
 		}
-		defer fp.Close()
+		defer func() {
+			if c, ok := fp.(io.Closer); ok {
+				c.Close()
+			}
+		}()
 
-		_, err = fp.Seek(offset, 0)
+		_, err = fp.Seek(beginOffset, io.SeekStart)
 		if err != nil {
 			panic(err)
 		}
@@ -114,10 +127,10 @@ func (s *SplitReader) LoadFile(i uint, splitCount uint, file string, chResult ch
 		reader := bufio.NewReader(fp)
 		lc := uint(0)
 		first := true
-		currentPos := offset
+		currentPos := beginOffset
 		for {
 			// 現在地がこのブロックの担当分を超えていたら終了
-			if currentPos > endOffset {
+			if currentPos > (endOffset + 1) {
 				break
 			}
 			text, err := reader.ReadString('\n')
@@ -128,17 +141,16 @@ func (s *SplitReader) LoadFile(i uint, splitCount uint, file string, chResult ch
 			}
 
 			// 2番目以降の分割ブロックは行の途中から始まる可能性が高い
-			// 最初の行は中途半端なのでskip（前のブロックが処理してくれる）
-			if first && offset != 0 {
+			// 最初の行は中途半端なのでskip（前のブロックが処理）
+			if first && currentPos == beginOffset && beginOffset != 0 {
 				first = false
-				continue
+			} else {
+				lc++
+				if lc%logStep == 0 {
+					fmt.Fprintf(os.Stderr, "[%02d-%02d]LoadFile: %d\n", i, splitIndex, lc)
+				}
+				chLine <- strings.TrimRight(text, "\r\n")
 			}
-
-			lc++
-			if lc%logStep == 0 {
-				fmt.Fprintf(os.Stderr, "[%02d-%02d]LoadFile: %d\n", i, splitIndex, lc)
-			}
-			chLine <- strings.TrimRight(text, "\r\n")
 
 			// 現在地を求める
 			currentPos = currentPos + int64(len(text))
@@ -152,10 +164,11 @@ func (s *SplitReader) LoadFile(i uint, splitCount uint, file string, chResult ch
 	splittedCount := len(splitPoints)
 	for i, e := range splitPoints {
 		index := i
+		point := e
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			f(index, e.BeginOffset, e.EndOffset)
+			f(index, point.BeginOffset, point.EndOffset)
 		}()
 	}
 

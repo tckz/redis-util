@@ -1,12 +1,77 @@
 package redisutil
 
 import (
+	"io"
+	"sort"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestLoadSeeker(t *testing.T) {
+	assert := assert.New(t)
+
+	r := &SplitReader{
+		MinBlockSize: 1,
+	}
+
+	s := `1234
+5678
+9abc
+defg
+hijk
+lmno
+pqrs
+tuvw
+xyz!
+`
+
+	for split := 1; split < len(s)*2; split++ {
+
+		chResult := make(chan uint, 16)
+		var result uint
+		chLine := make(chan string, 16)
+		var lines []string
+
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for s := range chLine {
+				lines = append(lines, s)
+			}
+		}()
+
+		r.LoadSeeker(0, uint(split), int64(len(s)),
+			func() (io.ReadSeeker, error) {
+				sr := strings.NewReader(s)
+				return sr, nil
+			},
+			chResult, chLine, 1000)
+
+		result = <-chResult
+		close(chLine)
+		wg.Wait()
+
+		sort.Strings(lines)
+		assert.Equal(`1234
+5678
+9abc
+defg
+hijk
+lmno
+pqrs
+tuvw
+xyz!`, strings.Join(lines, "\n"), "splitCount=%d", split)
+
+		assert.Equal(uint(9), result, "splitCount=%d", split)
+	}
+
+}
 
 func TestCalcSplitPoint(t *testing.T) {
 	assert := assert.New(t)

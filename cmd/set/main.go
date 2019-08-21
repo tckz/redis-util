@@ -6,14 +6,15 @@ package main
  */
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	redisutil "github.com/tckz/redis-util"
 )
 
@@ -22,12 +23,10 @@ var version string
 func main() {
 
 	showVersion := flag.Bool("version", false, "Show version")
-	withoutKey := flag.Bool("without-key", false, "Whether output with key or not")
-	out := flag.String("out", "out-", "path/to/prefix-of-file-")
-	outSplit := flag.Uint("out-split", 5, "Number of output files")
-	compress := flag.String("compress", "none", "{gzip|none=without compression}")
 	worker := flag.Uint("worker", 32, "Number of receiving goroutines")
 	inSplit := flag.Uint("in-split", 8, "Number of goroutines for reading file")
+	randomKeys := flag.Uint("random", 0, "Number of key&values to generate")
+	randomPrefix := flag.String("random-prefix", "rand-", "Prefix of random generated key")
 	var nodes redisutil.StrSlice
 	flag.Var(&nodes, "node", "Redis server host and port(ex. 127.0.0.1:6379)")
 	flag.Parse()
@@ -38,7 +37,7 @@ func main() {
 		return
 	}
 
-	if len(files) == 0 {
+	if len(files) == 0 && *randomKeys == 0 {
 		log.Fatalf("*** Files to load must be specified")
 	}
 
@@ -50,41 +49,43 @@ func main() {
 		log.Fatalf("*** --in-split must be >= 1")
 	}
 
-	if *outSplit <= 0 {
-		log.Fatalf("*** --out-split must be >= 1")
-	}
-
 	if *worker <= 0 {
 		log.Fatalf("*** --worker must be >= 1")
 	}
 
-	chOut := make(chan string, *outSplit)
 	chLine := make(chan string, *worker)
 	chFile := make(chan uint)
 	from := time.Now()
 
-	wgOut := redisutil.StartWriters(*outSplit, *out, *compress, chOut)
-
-	for i, file := range files {
-		// ファイルを分割並列入力して、入力行をチャンネルに投げる
-		sr := redisutil.SplitReader{MinBlockSize: 1024 * 4}
-		go sr.LoadFile(uint(i), *inSplit, file, chFile, chLine, 100000)
-	}
-
 	var lineCount int64
-	// ファイル入力が全部終わったら、入力行chを閉じる
-	go func() {
-		for i := 0; i < len(files); i++ {
-			lc := <-chFile
-			lineCount = lineCount + int64(lc)
+	if *randomKeys > 0 {
+		go func() {
+			for i := uint(0); i < *randomKeys; i++ {
+				v := uuid.Must(uuid.NewRandom()).String()
+				chLine <- fmt.Sprintf("%s%s\t%s\t-1", *randomPrefix, v, v)
+			}
+			close(chLine)
+		}()
+	} else {
+		for i, file := range files {
+			// ファイルを分割並列入力して、入力行をチャンネルに投げる
+			sr := redisutil.SplitReader{MinBlockSize: 1024 * 4}
+			go sr.LoadFile(uint(i), *inSplit, file, chFile, chLine, 100000)
 		}
-		close(chLine)
-	}()
+
+		// ファイル入力が全部終わったら、入力行chを閉じる
+		go func() {
+			for i := 0; i < len(files); i++ {
+				lc := <-chFile
+				lineCount = lineCount + int64(lc)
+			}
+			close(chLine)
+		}()
+	}
 
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
-		// 入力行を受け取ってredisからgetする
-		go hgetall(i, nodes, chResult, chLine, chOut, *withoutKey)
+		go set(i, nodes, chResult, chLine)
 	}
 
 	// 全ての受信goルーチンが終わったら終了
@@ -94,15 +95,12 @@ func main() {
 		totalResult = totalResult.Combine(result)
 	}
 
-	close(chOut)
-	wgOut.Wait()
-
 	elapsed := time.Since(from)
 	fmt.Fprintf(os.Stderr, "Lines: %d, Got: %d, Bad: %d, Elapsed: %s, Errors: %v\n",
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func hgetall(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan string, chOut chan<- string, withoutKey bool) {
+func set(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan string) {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -111,48 +109,42 @@ func hgetall(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-
 
 	result := redisutil.NewResult()
 
-	for key := range chLine {
+	for line := range chLine {
 		lc++
 		if lc%100000 == 0 {
-			fmt.Fprintf(os.Stderr, "[%02d]hgetall: %d\n", i, lc)
+			fmt.Fprintf(os.Stderr, "[%02d]set: %d\n", i, lc)
 		}
 
-		rec, err := client.HGetAll(key).Result()
-		if err != nil {
-			result.AddError(err.Error())
+		// {key}    {value}    {unixtime msec}
+		token := strings.SplitN(line, "\t", 3)
+		if len(token) != 3 {
+			result.AddError("Number of tokens != 3")
 			continue
 		}
 
-		if len(rec) == 0 {
-			result.AddError("Key does not exist")
-		} else {
-			b, err := json.Marshal(rec)
-			if err != nil {
-				panic(err)
-			}
-
-			ttl, err := client.PTTL(key).Result()
+		d := time.Duration(0)
+		if ms := token[2]; ms != "-1" {
+			i, err := strconv.ParseInt(ms, 10, 64)
 			if err != nil {
 				result.AddError(err.Error())
 				continue
 			}
 
-			ttlMs := time.Duration(ttl.Nanoseconds()) / time.Millisecond
-			ms := strconv.FormatInt(int64(ttlMs), 10)
+			d = time.Millisecond * time.Duration(i)
+		}
 
-			s := string(b)
-			if withoutKey {
-				chOut <- s + "\t" + ms
-			} else {
-				chOut <- key + "\t" + s + "\t" + ms
-			}
+		_, err := client.Set(token[0], token[1], d).Result()
+		if err != nil {
+			result.AddError(err.Error())
+			continue
 		}
 	}
 
 	elapsed := time.Since(from)
-	fmt.Fprintf(os.Stderr, "[%02d]hgetall: %d, Elapsed: %s\n", i, lc, elapsed)
+	fmt.Fprintf(os.Stderr, "[%02d]set: %d, Elapsed: %s\n", i, lc, elapsed)
 
 	result.Lines = lc
+
 	// 入力行が尽きたら受信件数をchResultに返して終了
 	chResult <- result
 }

@@ -6,12 +6,12 @@ type Result struct {
 	Errors   map[string]uint64
 }
 
-func (r Result) AddError(emes string) {
+func (r *Result) AddError(emes string) {
 	r.BadCount++
 	r.Errors[emes]++
 }
 
-func (r Result) Combine(o Result) Result {
+func (r *Result) Combine(o Result) Result {
 	ret := Result{
 		Lines:    r.Lines + o.Lines,
 		BadCount: r.BadCount + o.BadCount,

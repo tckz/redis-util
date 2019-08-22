@@ -18,7 +18,7 @@ func (r Result) Combine(o Result) Result {
 		Errors:   r.Errors,
 	}
 
-	for k, _ := range o.Errors {
+	for k := range o.Errors {
 		r.Errors[k] += o.Errors[k]
 	}
 

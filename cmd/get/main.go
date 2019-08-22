@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"time"
 
 	redisutil "github.com/tckz/redis-util"
@@ -122,19 +121,10 @@ func get(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan
 			continue
 		}
 
-		ttl, err := client.PTTL(key).Result()
-		if err != nil {
-			result.AddError(err.Error())
-			continue
-		}
-
-		ttlMs := time.Duration(ttl.Nanoseconds()) / time.Millisecond
-		ms := strconv.FormatInt(int64(ttlMs), 10)
-
 		if withoutKey {
-			chOut <- s + "\t" + ms
+			chOut <- s
 		} else {
-			chOut <- key + "\t" + s + "\t" + ms
+			chOut <- key + "\t" + s
 		}
 	}
 

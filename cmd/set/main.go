@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -115,25 +114,14 @@ func set(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan
 			fmt.Fprintf(os.Stderr, "[%02d]set: %d\n", i, lc)
 		}
 
-		// {key}    {value}    {unixtime msec}
-		token := strings.SplitN(line, "\t", 3)
-		if len(token) != 3 {
-			result.AddError("Number of tokens != 3")
+		// {key}    {value}
+		token := strings.SplitN(line, "\t", 2)
+		if len(token) != 2 {
+			result.AddError("Number of tokens != 2")
 			continue
 		}
 
-		d := time.Duration(0)
-		if ms := token[2]; ms != "-1" {
-			i, err := strconv.ParseInt(ms, 10, 64)
-			if err != nil {
-				result.AddError(err.Error())
-				continue
-			}
-
-			d = time.Millisecond * time.Duration(i)
-		}
-
-		_, err := client.Set(token[0], token[1], d).Result()
+		_, err := client.Set(token[0], token[1], 0).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue

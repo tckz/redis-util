@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -103,10 +102,10 @@ func hmset(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-ch
 			fmt.Fprintf(os.Stderr, "[%02d]hmset: %d\n", i, lc)
 		}
 
-		// {key}    {json}    {unixtime msec}
-		token := strings.SplitN(line, "\t", 3)
-		if len(token) != 3 {
-			result.AddError("Number of tokens != 3")
+		// {key}    {json}
+		token := strings.SplitN(line, "\t", 2)
+		if len(token) != 2 {
+			result.AddError("Number of tokens != 2")
 			continue
 		}
 
@@ -121,21 +120,6 @@ func hmset(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-ch
 		if err != nil {
 			result.AddError(err.Error())
 			continue
-		}
-
-		if ms := token[2]; ms != "-1" {
-			i, err := strconv.ParseInt(ms, 10, 64)
-			if err != nil {
-				result.AddError(err.Error())
-				continue
-			}
-
-			d := time.Millisecond * time.Duration(i)
-			_, err = client.PExpire(token[0], d).Result()
-			if err != nil {
-				result.AddError(err.Error())
-				continue
-			}
 		}
 	}
 

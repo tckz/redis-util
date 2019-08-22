@@ -82,31 +82,69 @@ func (s *SplitReader) CalcSplitPoint(splitCount uint, size int64) ([]SplitPoint,
 }
 
 // LoadFile 指定ファイルを分割並列入力し、行をchに飛ばす
-func (s *SplitReader) LoadFile(i uint, splitCount uint, file string, chResult chan<- uint, chLine chan<- string, logStep uint) {
-	fi, err := os.Stat(file)
+func (s *SplitReader) LoadFile(i uint, splitCount uint, file string, chLine chan<- string, logStep uint64) uint64 {
+
+	fp, err := os.Open(file)
 	if err != nil {
 		panic(err)
 	}
-	fileSize := fi.Size()
+	defer fp.Close()
 
-	s.LoadSeeker(i, splitCount, fileSize,
-		func() (io.ReadSeeker, error) {
-			return os.Open(file)
-		},
-		chResult, chLine, logStep)
+	r, cleanup, err := DecorateReader(file, fp)
+	if err != nil {
+		panic(err)
+	}
+	defer cleanup()
+
+	if _, ok := r.(io.Seeker); ok {
+		fi, err := fp.Stat()
+		if err != nil {
+			panic(err)
+		}
+		fileSize := fi.Size()
+
+		return s.FromSeeker(i, splitCount, fileSize,
+			func() (io.ReadSeeker, error) {
+				return os.Open(file)
+			},
+			chLine, logStep)
+	} else {
+		return s.FromReader(i, r, chLine, logStep)
+	}
+
 }
 
-func (s *SplitReader) LoadSeeker(i uint, splitCount uint, fileSize int64, genSeeker func() (io.ReadSeeker, error), chResult chan<- uint, chLine chan<- string, logStep uint) {
+func (s *SplitReader) FromReader(i uint, r io.Reader, chLine chan<- string, logStep uint64) uint64 {
+	reader := bufio.NewReader(r)
+	lc := uint64(0)
+	for {
+		text, err := reader.ReadString('\n')
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			panic(err)
+		}
+
+		lc++
+		if lc%logStep == 0 {
+			fmt.Fprintf(os.Stderr, "[%02d]FromReader: %d\n", i, lc)
+		}
+		chLine <- strings.TrimRight(text, "\r\n")
+	}
+	return lc
+}
+
+func (s *SplitReader) FromSeeker(i uint, splitCount uint, fileSize int64, genSeeker func() (io.ReadSeeker, error), chLine chan<- string, logStep uint64) uint64 {
 
 	splitPoints, err := s.CalcSplitPoint(splitCount, fileSize)
 	if err != nil {
 		panic(err)
 	}
 
-	chSplit := make(chan uint, len(splitPoints))
+	chSplit := make(chan uint64, len(splitPoints))
 	// 分割された1ブロック分の処理
 	f := func(splitIndex int, beginOffset int64, endOffset int64) {
-		fmt.Fprintf(os.Stderr, "[%02d-%02d]LoadSeeker: %d to %d\n",
+		fmt.Fprintf(os.Stderr, "[%02d-%02d]FromSeeker: %d to %d\n",
 			i, splitIndex, beginOffset, endOffset)
 
 		fp, err := genSeeker()
@@ -125,7 +163,7 @@ func (s *SplitReader) LoadSeeker(i uint, splitCount uint, fileSize int64, genSee
 		}
 
 		reader := bufio.NewReader(fp)
-		lc := uint(0)
+		lc := uint64(0)
 		first := true
 		currentPos := beginOffset
 		for {
@@ -147,7 +185,7 @@ func (s *SplitReader) LoadSeeker(i uint, splitCount uint, fileSize int64, genSee
 			} else {
 				lc++
 				if lc%logStep == 0 {
-					fmt.Fprintf(os.Stderr, "[%02d-%02d]LoadFile: %d\n", i, splitIndex, lc)
+					fmt.Fprintf(os.Stderr, "[%02d-%02d]FromSeeker: %d\n", i, splitIndex, lc)
 				}
 				chLine <- strings.TrimRight(text, "\r\n")
 			}
@@ -172,13 +210,12 @@ func (s *SplitReader) LoadSeeker(i uint, splitCount uint, fileSize int64, genSee
 		}()
 	}
 
-	var lineCount uint
+	var lineCount uint64
 	for i := 0; i < splittedCount; i++ {
 		lc := <-chSplit
 		lineCount = lineCount + lc
 	}
 	wg.Wait()
 
-	// 1ファイル分の完了を通知
-	chResult <- lineCount
+	return lineCount
 }

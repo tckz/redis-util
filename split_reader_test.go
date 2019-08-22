@@ -32,8 +32,6 @@ xyz!
 
 	for split := 1; split < len(s)*2; split++ {
 
-		chResult := make(chan uint, 16)
-		var result uint
 		chLine := make(chan string, 16)
 		var lines []string
 
@@ -46,14 +44,13 @@ xyz!
 			}
 		}()
 
-		r.LoadSeeker(0, uint(split), int64(len(s)),
+		result := r.FromSeeker(0, uint(split), int64(len(s)),
 			func() (io.ReadSeeker, error) {
 				sr := strings.NewReader(s)
 				return sr, nil
 			},
-			chResult, chLine, 1000)
+			chLine, 1000)
 
-		result = <-chResult
 		close(chLine)
 		wg.Wait()
 
@@ -68,7 +65,7 @@ pqrs
 tuvw
 xyz!`, strings.Join(lines, "\n"), "splitCount=%d", split)
 
-		assert.Equal(uint(9), result, "splitCount=%d", split)
+		assert.Equal(uint64(9), result, "splitCount=%d", split)
 	}
 
 }

@@ -58,7 +58,7 @@ func main() {
 
 	chOut := make(chan string, *outSplit)
 	chLine := make(chan string, *worker)
-	chFile := make(chan uint)
+	chFile := make(chan uint64)
 	from := time.Now()
 
 	wgOut := redisutil.StartWriters(*outSplit, *out, *compress, chOut)
@@ -66,7 +66,11 @@ func main() {
 	for i, file := range files {
 		// ファイルを分割並列入力して、入力行をチャンネルに投げる
 		sr := redisutil.SplitReader{MinBlockSize: 1024 * 4}
-		go sr.LoadFile(uint(i), *inSplit, file, chFile, chLine, 100000)
+		index := i
+		go func() {
+			lc := sr.LoadFile(uint(index), *inSplit, file, chLine, 100000)
+			chFile <- lc
+		}()
 	}
 
 	var lineCount int64
@@ -82,8 +86,9 @@ func main() {
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		// 入力行を受け取ってredisからgetする
+		index := i
 		go func() {
-			pttl(i, nodes, chLine, chOut)
+			chResult <- pttl(index, nodes, chLine, chOut)
 		}()
 	}
 

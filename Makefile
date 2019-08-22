@@ -39,6 +39,10 @@ test:
 	GO111MODULE=on go test -coverprofile=reports/coverage.out -json > reports/test.json
 	@echo "$@ done."
 
+test-plain:
+	GO111MODULE=on go test -v
+	@echo "$@ done."
+
 $(DIST_HGETALL): cmd/hgetall/* $(SRCS_OTHER)
 	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/hgetall/
 	@echo "$@ done."

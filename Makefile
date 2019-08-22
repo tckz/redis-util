@@ -55,7 +55,7 @@ $(DIST_SET): cmd/set/* $(SRCS_OTHER)
 	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/set/
 	@echo "$@ done."
 
-$(DIST_DEL): cmd/set/* $(SRCS_OTHER)
+$(DIST_DEL): cmd/del/* $(SRCS_OTHER)
 	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/del/
 	@echo "$@ done."
 

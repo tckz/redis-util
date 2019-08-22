@@ -61,7 +61,7 @@ func main() {
 		go func() {
 			for i := uint(0); i < *randomKeys; i++ {
 				v := uuid.Must(uuid.NewRandom()).String()
-				chLine <- fmt.Sprintf("%s%s\t%s\t-1", *randomPrefix, v, v)
+				chLine <- fmt.Sprintf("%s%s\t%s", *randomPrefix, v, v)
 			}
 			close(chLine)
 		}()
@@ -84,7 +84,9 @@ func main() {
 
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
-		go set(i, nodes, chResult, chLine)
+		go func() {
+			set(i, nodes, chLine)
+		}()
 	}
 
 	// 全ての受信goルーチンが終わったら終了
@@ -99,7 +101,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func set(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan string) {
+func set(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -133,6 +135,5 @@ func set(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan
 
 	result.Lines = lc
 
-	// 入力行が尽きたら受信件数をchResultに返して終了
-	chResult <- result
+	return result
 }

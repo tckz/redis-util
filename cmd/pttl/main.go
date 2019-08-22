@@ -82,7 +82,9 @@ func main() {
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		// 入力行を受け取ってredisからgetする
-		go pttl(i, nodes, chResult, chLine, chOut)
+		go func() {
+			pttl(i, nodes, chLine, chOut)
+		}()
 	}
 
 	// 全ての受信goルーチンが終わったら終了
@@ -103,7 +105,7 @@ func main() {
 const ttlNotExist = time.Millisecond * -2
 const neverExpire = "-1"
 
-func pttl(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan string, chOut chan<- string) {
+func pttl(i uint, nodes []string, chLine <-chan string, chOut chan<- string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -140,6 +142,5 @@ func pttl(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-cha
 	fmt.Fprintf(os.Stderr, "[%02d]pttl: %d, Elapsed: %s\n", i, lc, elapsed)
 	result.Lines = lc
 
-	// 入力行が尽きたら受信件数をchResultに返して終了
-	chResult <- result
+	return result
 }

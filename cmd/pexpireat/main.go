@@ -72,7 +72,9 @@ func main() {
 
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
-		go pexpireat(i, nodes, chResult, chLine)
+		go func() {
+			pexpireat(i, nodes, chLine)
+		}()
 	}
 
 	// 全ての受信goルーチンが終わったら終了
@@ -87,7 +89,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func pexpireat(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan string) {
+func pexpireat(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -128,6 +130,5 @@ func pexpireat(i uint, nodes []string, chResult chan<- redisutil.Result, chLine 
 
 	result.Lines = lc
 
-	// 入力行が尽きたら受信件数をchResultに返して終了
-	chResult <- result
+	return result
 }

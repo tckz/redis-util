@@ -83,7 +83,9 @@ func main() {
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		// 入力行を受け取ってredisからgetする
-		go hgetall(i, nodes, chResult, chLine, chOut, *withoutKey)
+		go func() {
+			hgetall(i, nodes, chLine, chOut, *withoutKey)
+		}()
 	}
 
 	// 全ての受信goルーチンが終わったら終了
@@ -101,7 +103,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func hgetall(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-chan string, chOut chan<- string, withoutKey bool) {
+func hgetall(i uint, nodes []string, chLine <-chan string, chOut chan<- string, withoutKey bool) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -143,6 +145,6 @@ func hgetall(i uint, nodes []string, chResult chan<- redisutil.Result, chLine <-
 	fmt.Fprintf(os.Stderr, "[%02d]hgetall: %d, Elapsed: %s\n", i, lc, elapsed)
 
 	result.Lines = lc
-	// 入力行が尽きたら受信件数をchResultに返して終了
-	chResult <- result
+
+	return result
 }

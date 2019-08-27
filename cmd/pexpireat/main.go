@@ -59,8 +59,9 @@ func main() {
 		// ファイルを分割並列入力して、入力行をチャンネルに投げる
 		sr := redisutil.SplitReader{MinBlockSize: 1024 * 4}
 		index := i
+		fn := file
 		go func() {
-			lc := sr.LoadFile(uint(index), *inSplit, file, chLine, 100000)
+			lc := sr.LoadFile(uint(index), *inSplit, fn, chLine, 100000)
 			chFile <- lc
 		}()
 	}

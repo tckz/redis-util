@@ -4,10 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-redis/redis"
 	"github.com/google/uuid"
 	redisutil "github.com/tckz/redis-util"
 )
@@ -19,8 +22,9 @@ func main() {
 	showVersion := flag.Bool("version", false, "Show version")
 	worker := flag.Uint("worker", 32, "Number of worker goroutines")
 	inSplit := flag.Uint("in-split", 8, "Number of goroutines for reading file")
-	randomKeys := flag.Uint("random", 0, "Number of key&values to generate")
-	randomPrefix := flag.String("random-prefix", "rand-", "Prefix of random generated key")
+	randomKeys := flag.Uint("random", 0, "Number of pairs that consist of member and score to generate")
+	randomPrefix := flag.String("random-prefix", "rand-", "Prefix of random generated member")
+	key := flag.String("key", "", "Key of ZSET")
 	var nodes redisutil.StrSlice
 	flag.Var(&nodes, "node", "Redis server host and port(ex. 127.0.0.1:6379)")
 	flag.Parse()
@@ -31,8 +35,14 @@ func main() {
 		return
 	}
 
-	if len(files) == 0 && *randomKeys == 0 {
-		log.Fatalf("*** Files to load must be specified")
+	if *randomKeys > 0 {
+		if *key == "" {
+			log.Fatalf("*** key must be specified")
+		}
+	} else {
+		if len(files) == 0 {
+			log.Fatalf("*** Files to load must be specified")
+		}
 	}
 
 	if len(nodes) == 0 {
@@ -54,8 +64,10 @@ func main() {
 	if *randomKeys > 0 {
 		go func() {
 			for i := uint(0); i < *randomKeys; i++ {
-				v := uuid.Must(uuid.NewRandom()).String()
-				chLine <- fmt.Sprintf("%s%s\t%s", *randomPrefix, v, v)
+				member := uuid.Must(uuid.NewRandom()).String()
+				// 整数部分でなんとなく大小がわかるように
+				score := rand.Float64() * 1000000
+				chLine <- fmt.Sprintf("%s\t%f\t%s%s", *key, score, *randomPrefix, member)
 			}
 			close(chLine)
 		}()
@@ -86,7 +98,7 @@ func main() {
 	for i := uint(0); i < *worker; i++ {
 		index := i
 		go func() {
-			chResult <- set(index, nodes, chLine)
+			chResult <- zadd(index, nodes, chLine)
 		}()
 	}
 
@@ -97,12 +109,11 @@ func main() {
 		totalResult = totalResult.Combine(result)
 	}
 
-	elapsed := time.Since(from)
 	fmt.Fprintf(os.Stderr, "Lines: %d, Got: %d, Bad: %d, Elapsed: %s, Errors: %v\n",
-		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
+		lineCount, totalResult.Lines, totalResult.BadCount, time.Since(from), totalResult.Errors)
 }
 
-func set(i uint, nodes []string, chLine <-chan string) redisutil.Result {
+func zadd(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -111,28 +122,45 @@ func set(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 
 	result := redisutil.NewResult()
 
+	members := make([]redis.Z, 0, 1024)
 	for line := range chLine {
 		lc++
 		if lc%100000 == 0 {
-			fmt.Fprintf(os.Stderr, "[%02d]set: %d\n", i, lc)
+			fmt.Fprintf(os.Stderr, "[%02d]zadd: %d\n", i, lc)
 		}
 
-		// {key}    {value}
-		token := strings.SplitN(line, "\t", 2)
-		if len(token) != 2 {
-			result.AddError("Number of tokens != 2")
+		// {key}    {score}	{member}...
+		tokens := strings.SplitN(line, "\t", -1)
+		tokenCount := len(tokens)
+		if tokenCount < 3 || (tokenCount&1) == 0 {
+			result.AddError(fmt.Sprintf("Number of tokens = %d", tokenCount))
 			continue
 		}
 
-		_, err := client.Set(token[0], token[1], 0).Result()
+		if cap(members) < tokenCount-1 {
+			members = make([]redis.Z, 0, tokenCount-1)
+		}
+
+		members = members[:0]
+		for i := 1; i < tokenCount; i += 2 {
+			score, err := strconv.ParseFloat(tokens[i], 64)
+			if err != nil {
+				result.AddError(err.Error())
+				continue
+			}
+			members = append(members, redis.Z{
+				Score:  score,
+				Member: tokens[i+1],
+			})
+		}
+		_, err := client.ZAdd(tokens[0], members...).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue
 		}
 	}
 
-	elapsed := time.Since(from)
-	fmt.Fprintf(os.Stderr, "[%02d]set: %d, Elapsed: %s\n", i, lc, elapsed)
+	fmt.Fprintf(os.Stderr, "[%02d]zadd: %d, Elapsed: %s\n", i, lc, time.Since(from))
 
 	result.Lines = lc
 

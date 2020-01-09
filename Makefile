@@ -5,6 +5,7 @@ DIST_HGETALL=dist/hgetall
 DIST_HMSET=dist/hmset
 DIST_GET=dist/get
 DIST_SET=dist/set
+DIST_ZADD=dist/zadd
 DIST_DEL=dist/del
 DIST_PTTL=dist/pttl
 DIST_PEXPIREAT=dist/pexpireat
@@ -13,6 +14,7 @@ TARGETS=\
 	$(DIST_HGETALL) \
 	$(DIST_GET) \
 	$(DIST_SET) \
+	$(DIST_ZADD) \
 	$(DIST_DEL) \
 	$(DIST_PTTL) \
 	$(DIST_PEXPIREAT) \
@@ -57,6 +59,10 @@ $(DIST_GET): cmd/get/* $(SRCS_OTHER)
 
 $(DIST_SET): cmd/set/* $(SRCS_OTHER)
 	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/set/
+	@echo "$@ done."
+
+$(DIST_ZADD): cmd/zadd/* $(SRCS_OTHER)
+	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/zadd/
 	@echo "$@ done."
 
 $(DIST_DEL): cmd/del/* $(SRCS_OTHER)

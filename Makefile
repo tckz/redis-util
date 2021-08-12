@@ -16,6 +16,7 @@ DIST_SET=dist/set
 DIST_ZADD=dist/zadd
 DIST_DEL=dist/del
 DIST_PTTL=dist/pttl
+DIST_SCAN=dist/scan
 DIST_PEXPIREAT=dist/pexpireat
 
 TARGETS=\
@@ -25,6 +26,7 @@ TARGETS=\
 	$(DIST_ZADD) \
 	$(DIST_DEL) \
 	$(DIST_PTTL) \
+	$(DIST_SCAN) \
 	$(DIST_PEXPIREAT) \
 	$(DIST_HSET)
 
@@ -76,4 +78,6 @@ $(DIST_PTTL): cmd/pttl/* $(SRCS_OTHER)
 $(DIST_PEXPIREAT): cmd/pexpireat/* $(SRCS_OTHER)
 	$(GO_BUILD) -o $@ ./cmd/pexpireat/
 
+$(DIST_SCAN): cmd/scan/* $(SRCS_OTHER)
+	$(GO_BUILD) -o $@ ./cmd/scan/
 

@@ -6,6 +6,7 @@ package main
  */
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -73,11 +74,12 @@ func main() {
 		close(chLine)
 	}()
 
+	ctx := context.Background()
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		index := i
 		go func() {
-			chResult <- del(index, nodes, chLine)
+			chResult <- del(ctx, index, nodes, chLine)
 		}()
 	}
 
@@ -93,7 +95,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func del(i uint, nodes []string, chLine <-chan string) redisutil.Result {
+func del(ctx context.Context, i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -108,7 +110,7 @@ func del(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 			fmt.Fprintf(os.Stderr, "[%02d]del: %d\n", i, lc)
 		}
 
-		_, err := client.Del(line).Result()
+		_, err := client.Del(ctx, line).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue

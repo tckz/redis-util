@@ -6,6 +6,7 @@ package main
  */
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -75,11 +76,12 @@ func main() {
 		close(chLine)
 	}()
 
+	ctx := context.Background()
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		index := i
 		go func() {
-			chResult <- hmset(index, nodes, chLine)
+			chResult <- hset(ctx, index, nodes, chLine)
 		}()
 	}
 
@@ -95,7 +97,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func hmset(i uint, nodes []string, chLine <-chan string) redisutil.Result {
+func hset(ctx context.Context, i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -107,7 +109,7 @@ func hmset(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	for line := range chLine {
 		lc++
 		if lc%100000 == 0 {
-			fmt.Fprintf(os.Stderr, "[%02d]hmset: %d\n", i, lc)
+			fmt.Fprintf(os.Stderr, "[%02d]hset: %d\n", i, lc)
 		}
 
 		// {key}    {json}
@@ -124,7 +126,7 @@ func hmset(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 			continue
 		}
 
-		_, err = client.HMSet(token[0], m).Result()
+		_, err = client.HSet(ctx, token[0], m).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue
@@ -132,7 +134,7 @@ func hmset(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	}
 
 	elapsed := time.Since(from)
-	fmt.Fprintf(os.Stderr, "[%02d]hmset: %d, Elapsed: %s\n", i, lc, elapsed)
+	fmt.Fprintf(os.Stderr, "[%02d]hset: %d, Elapsed: %s\n", i, lc, elapsed)
 
 	result.Lines = lc
 

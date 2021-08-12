@@ -6,6 +6,7 @@ package main
  */
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -75,11 +76,12 @@ func main() {
 		close(chLine)
 	}()
 
+	ctx := context.Background()
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		index := i
 		go func() {
-			chResult <- pexpireat(index, nodes, chLine)
+			chResult <- pexpireat(ctx, index, nodes, chLine)
 		}()
 	}
 
@@ -95,7 +97,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func pexpireat(i uint, nodes []string, chLine <-chan string) redisutil.Result {
+func pexpireat(ctx context.Context, i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -124,7 +126,7 @@ func pexpireat(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 		}
 
 		tm := time.Unix(unixTimeMsec/1000, (unixTimeMsec%1000)*int64(time.Millisecond))
-		_, err = client.PExpireAt(token[0], tm).Result()
+		_, err = client.PExpireAt(ctx, token[0], tm).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue

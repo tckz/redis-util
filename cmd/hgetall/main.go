@@ -6,6 +6,7 @@ package main
  */
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -85,12 +86,13 @@ func main() {
 		close(chLine)
 	}()
 
+	ctx := context.Background()
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		// 入力行を受け取ってredisからgetする
 		index := i
 		go func() {
-			chResult <- hgetall(index, nodes, chLine, chOut, *withoutKey)
+			chResult <- hgetall(ctx, index, nodes, chLine, chOut, *withoutKey)
 		}()
 	}
 
@@ -109,7 +111,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func hgetall(i uint, nodes []string, chLine <-chan string, chOut chan<- string, withoutKey bool) redisutil.Result {
+func hgetall(ctx context.Context, i uint, nodes []string, chLine <-chan string, chOut chan<- string, withoutKey bool) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -124,7 +126,7 @@ func hgetall(i uint, nodes []string, chLine <-chan string, chOut chan<- string, 
 			fmt.Fprintf(os.Stderr, "[%02d]hgetall: %d\n", i, lc)
 		}
 
-		rec, err := client.HGetAll(key).Result()
+		rec, err := client.HGetAll(ctx, key).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue

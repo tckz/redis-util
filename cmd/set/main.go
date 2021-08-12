@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -82,11 +83,12 @@ func main() {
 		}()
 	}
 
+	ctx := context.Background()
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		index := i
 		go func() {
-			chResult <- set(index, nodes, chLine)
+			chResult <- set(ctx, index, nodes, chLine)
 		}()
 	}
 
@@ -102,7 +104,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, elapsed, totalResult.Errors)
 }
 
-func set(i uint, nodes []string, chLine <-chan string) redisutil.Result {
+func set(ctx context.Context, i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -124,7 +126,7 @@ func set(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 			continue
 		}
 
-		_, err := client.Set(token[0], token[1], 0).Result()
+		_, err := client.Set(ctx, token[0], token[1], 0).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue

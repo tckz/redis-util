@@ -6,6 +6,7 @@ package main
  */
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -84,12 +85,13 @@ func main() {
 		close(chLine)
 	}()
 
+	ctx := context.Background()
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		// 入力行を受け取ってredisからgetする
 		index := i
 		go func() {
-			chResult <- pttl(index, nodes, chLine, chOut)
+			chResult <- pttl(ctx, index, nodes, chLine, chOut)
 		}()
 	}
 
@@ -111,7 +113,7 @@ func main() {
 const ttlNotExist = time.Millisecond * -2
 const neverExpire = "-1"
 
-func pttl(i uint, nodes []string, chLine <-chan string, chOut chan<- string) redisutil.Result {
+func pttl(ctx context.Context, i uint, nodes []string, chLine <-chan string, chOut chan<- string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -126,7 +128,7 @@ func pttl(i uint, nodes []string, chLine <-chan string, chOut chan<- string) red
 			fmt.Fprintf(os.Stderr, "[%02d]pttl: %d\n", i, lc)
 		}
 
-		d, err := client.PTTL(key).Result()
+		d, err := client.PTTL(ctx, key).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue

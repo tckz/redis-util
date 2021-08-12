@@ -1,8 +1,16 @@
 .PHONY: dist test clean all sonar
-.SUFFIXES: .proto .pb.go .go
+
+export GO111MODULE=on
+
+ifeq ($(GO_CMD),)
+GO_CMD:=go
+endif
+
+VERSION := $(shell git describe --always)
+GO_BUILD := CGO_ENABLED=0 $(GO_CMD) build -ldflags "-X main.version=$(VERSION)"
 
 DIST_HGETALL=dist/hgetall
-DIST_HMSET=dist/hmset
+DIST_HSET=dist/hset
 DIST_GET=dist/get
 DIST_SET=dist/set
 DIST_ZADD=dist/zadd
@@ -18,63 +26,54 @@ TARGETS=\
 	$(DIST_DEL) \
 	$(DIST_PTTL) \
 	$(DIST_PEXPIREAT) \
-	$(DIST_HMSET)
+	$(DIST_HSET)
 
-SRCS_OTHER=$(shell find . -type d -name vendor -prune -o -type d -name cmd -prune -o -type f -name "*.go" -print) go.mod
+SRCS_OTHER := $(shell find . \
+	-type d -name cmd -prune -o \
+	-type d -name vendor -prune -o \
+	-type f -name "*.go" -print) go.mod
 
 all: $(TARGETS)
-	@echo "$@ done."
+	@echo "$@ done." 1>&2
 
-sonar: test
+sonar: test-detail
 	./gradlew sonar
-	@echo "$@ done."
+	@echo "$@ done." 1>&2
 
 clean:
 	/bin/rm -f $(TARGETS)
-	@echo "$@ done."
-
-# if block ends with... : I want to narrownize scope within if block.
-lint:
-	golint ./... | (egrep -v "(if block ends with a return statement)" || :)
+	@echo "$@ done." 1>&2
 
 test:
-	GO111MODULE=on go test -coverprofile=reports/coverage.out -json > reports/test.json
-	@echo "$@ done."
+	go test -v
+	@echo "$@ done." 1>&2
 
-test-plain:
-	GO111MODULE=on go test -v
-	@echo "$@ done."
+test-detail:
+	$(GO_CMD) test -coverprofile=reports/coverage.out -json > reports/test.json
+	@echo "$@ done." 1>&2
 
 $(DIST_HGETALL): cmd/hgetall/* $(SRCS_OTHER)
-	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/hgetall/
-	@echo "$@ done."
+	$(GO_BUILD) -o $@ ./cmd/hgetall/
 
-$(DIST_HMSET): cmd/hmset/* $(SRCS_OTHER)
-	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/hmset/
-	@echo "$@ done."
+$(DIST_HSET): cmd/hset/* $(SRCS_OTHER)
+	$(GO_BUILD) -o $@ ./cmd/hset/
 
 $(DIST_GET): cmd/get/* $(SRCS_OTHER)
-	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/get/
-	@echo "$@ done."
+	$(GO_BUILD) -o $@ ./cmd/get/
 
 $(DIST_SET): cmd/set/* $(SRCS_OTHER)
-	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/set/
-	@echo "$@ done."
+	$(GO_BUILD) -o $@ ./cmd/set/
 
 $(DIST_ZADD): cmd/zadd/* $(SRCS_OTHER)
-	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/zadd/
-	@echo "$@ done."
+	$(GO_BUILD) -o $@ ./cmd/zadd/
 
 $(DIST_DEL): cmd/del/* $(SRCS_OTHER)
-	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/del/
-	@echo "$@ done."
+	$(GO_BUILD) -o $@ ./cmd/del/
 
 $(DIST_PTTL): cmd/pttl/* $(SRCS_OTHER)
-	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/pttl/
-	@echo "$@ done."
+	$(GO_BUILD) -o $@ ./cmd/pttl/
 
 $(DIST_PEXPIREAT): cmd/pexpireat/* $(SRCS_OTHER)
-	GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o $@ -ldflags "-X main.version=`git describe --tags --always`" ./cmd/pexpireat/
-	@echo "$@ done."
+	$(GO_BUILD) -o $@ ./cmd/pexpireat/
 
 

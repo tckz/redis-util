@@ -3,7 +3,7 @@ package redisutil
 import (
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v8"
 )
 
 // RedisSetting redis設定

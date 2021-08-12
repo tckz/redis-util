@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -10,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	redisutil "github.com/tckz/redis-util"
 )
@@ -94,11 +95,12 @@ func main() {
 		}()
 	}
 
+	ctx := context.Background()
 	chResult := make(chan redisutil.Result, *worker)
 	for i := uint(0); i < *worker; i++ {
 		index := i
 		go func() {
-			chResult <- zadd(index, nodes, chLine)
+			chResult <- zadd(ctx, index, nodes, chLine)
 		}()
 	}
 
@@ -113,7 +115,7 @@ func main() {
 		lineCount, totalResult.Lines, totalResult.BadCount, time.Since(from), totalResult.Errors)
 }
 
-func zadd(i uint, nodes []string, chLine <-chan string) redisutil.Result {
+func zadd(ctx context.Context, i uint, nodes []string, chLine <-chan string) redisutil.Result {
 	client := redisutil.NewRedisClient(nodes)
 	defer client.Close()
 
@@ -122,7 +124,7 @@ func zadd(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 
 	result := redisutil.NewResult()
 
-	members := make([]redis.Z, 0, 1024)
+	members := make([]*redis.Z, 0, 1024)
 	for line := range chLine {
 		lc++
 		if lc%100000 == 0 {
@@ -138,7 +140,7 @@ func zadd(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 		}
 
 		if cap(members) < tokenCount-1 {
-			members = make([]redis.Z, 0, tokenCount-1)
+			members = make([]*redis.Z, 0, tokenCount-1)
 		}
 
 		members = members[:0]
@@ -148,12 +150,12 @@ func zadd(i uint, nodes []string, chLine <-chan string) redisutil.Result {
 				result.AddError(err.Error())
 				continue
 			}
-			members = append(members, redis.Z{
+			members = append(members, &redis.Z{
 				Score:  score,
 				Member: tokens[i+1],
 			})
 		}
-		_, err := client.ZAdd(tokens[0], members...).Result()
+		_, err := client.ZAdd(ctx, tokens[0], members...).Result()
 		if err != nil {
 			result.AddError(err.Error())
 			continue
